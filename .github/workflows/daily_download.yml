@@ -27,8 +27,9 @@ jobs:
     - name: Run Downloader Script
       run: python main.py
 
-    - name: Setup Rclone
-      uses: rclone/rclone-action@v1
+    - name: Install Rclone
+      run: |
+        sudo sudo curl https://rclone.org/install.sh | sudo bash
 
     - name: Upload to Google Drive via Rclone
       env:
