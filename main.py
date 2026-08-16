@@ -42,6 +42,7 @@ def run_download():
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
     prefs = {
         "download.default_directory": DOWNLOAD_DIR,
@@ -51,28 +52,34 @@ def run_download():
     options.add_experimental_option("prefs", prefs)
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 10)
 
     try:
         url = "https://yieldmaxetfs.com/our-etfs/ulty/"
         driver.get(url)
-        time.sleep(4)
+        time.sleep(5)
 
         # 1) Holdings 다운로드
-        holdings_xpath = "//a[contains(@href, '.csv') and (contains(@href, 'Holdings') or contains(@href, 'holdings'))]"
-        holdings_btn = wait.until(EC.presence_of_element_located((By.XPATH, holdings_xpath)))
-        driver.get(holdings_btn.get_attribute("href"))
-        process_downloaded_file("Holdings")
+        try:
+            holdings_xpath = "//a[contains(@href, '.csv') and (contains(@href, 'Holdings') or contains(@href, 'holdings'))]"
+            holdings_btn = wait.until(EC.presence_of_element_located((By.XPATH, holdings_xpath)))
+            driver.get(holdings_btn.get_attribute("href"))
+            process_downloaded_file("Holdings")
+        except Exception as e:
+            print(f"[알림] Holdings 다운로드 중 예외 발생: {e}")
 
         time.sleep(3)
 
         # 2) Intraday 다운로드
-        driver.get(url)
-        time.sleep(3)
-        trades_xpath = "//a[contains(@href, '.csv') and (contains(@href, 'trades') or contains(@href, 'Trades'))]"
-        intraday_btn = wait.until(EC.presence_of_element_located((By.XPATH, trades_xpath)))
-        driver.get(intraday_btn.get_attribute("href"))
-        process_downloaded_file("Intraday")
+        try:
+            driver.get(url)
+            time.sleep(3)
+            trades_xpath = "//a[contains(@href, '.csv') and (contains(@href, 'trades') or contains(@href, 'Trades'))]"
+            intraday_btn = wait.until(EC.presence_of_element_located((By.XPATH, trades_xpath)))
+            driver.get(intraday_btn.get_attribute("href"))
+            process_downloaded_file("Intraday")
+        except Exception as e:
+            print(f"[알림] Intraday 파일이 없거나 다운로드 링크를 찾지 못했습니다: {e}")
 
     finally:
         driver.quit()
