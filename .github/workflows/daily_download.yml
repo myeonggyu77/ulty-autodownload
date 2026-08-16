@@ -28,7 +28,7 @@ jobs:
       run: python main.py
 
     - name: Setup Rclone
-      uses: rclone/rclone-python-action@v1
+      uses: rclone/rclone-action@v1
 
     - name: Upload to Google Drive via Rclone
       env:
