@@ -1,7 +1,9 @@
 import os
 import glob
 import time
+import re
 import datetime
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
@@ -14,7 +16,6 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 TODAY_STR = datetime.datetime.now().strftime("%Y-%m-%d")
 
 def process_downloaded_file(label):
-    # 다운로드 완료 대기 (.crdownload 사라질 때까지)
     for _ in range(15):
         if not glob.glob(os.path.join(DOWNLOAD_DIR, "*.crdownload")):
             break
@@ -64,39 +65,56 @@ def run_download():
         # 1) Holdings 다운로드
         try:
             holdings_xpath = "//a[contains(@href, '.csv') and (contains(@href, 'Holdings') or contains(@href, 'holdings'))]"
-            holdings_btn = wait.until(EC.element_to_be_clickable((By.XPATH, holdings_xpath)))
-            driver.execute_script("arguments[0].click();", holdings_btn)
+            holdings_btn = wait.until(EC.presence_of_element_located((By.XPATH, holdings_xpath)))
+            driver.get(holdings_btn.get_attribute("href"))
             process_downloaded_file("Holdings")
         except Exception as e:
-            print(f"[알림] Holdings 다운로드 예외: {e}")
+            print(f"[알림] Holdings 다운로드 실패: {e}")
 
         time.sleep(3)
 
-        # 2) Intraday Trades 다운로드 (새 탭 클릭 대응)
+        # 2) Intraday Trades 다운로드 (전체 소스 및 iframe 탐색 방식)
         try:
-            driver.switch_to.window(driver.window_handles[0])
             driver.get(url)
             time.sleep(5)
 
-            # Intraday 링크/버튼 탐색
-            intraday_xpath = "//a[contains(@href, 'trade') or contains(@href, 'Trade') or contains(translate(text(), 'INTRADAY', 'intraday'), 'intraday')]"
-            intraday_btn = wait.until(EC.presence_of_element_located((By.XPATH, intraday_xpath)))
+            csv_url = None
+            page_source = driver.page_source
 
-            href = intraday_btn.get_attribute("href")
-            if href and ".csv" in href.lower():
-                driver.get(href)
+            # 소스 코드 전체에서 intraday/trade 관련 csv 링크 정규식 탐색
+            csv_matches = re.findall(r'https?://[^\s"\']*?(?:trade|intraday)[^\s"\']*?\.csv', page_source, re.IGNORECASE)
+            
+            if csv_matches:
+                csv_url = csv_matches[0]
             else:
-                # 새 탭 생성 트리거
-                driver.execute_script("arguments[0].click();", intraday_btn)
+                # iframe 내부도 체크
+                iframes = driver.find_elements(By.TAG_NAME, "iframe")
+                for iframe in iframes:
+                    iframe_src = iframe.get_attribute("src")
+                    if iframe_src and ("trade" in iframe_src.lower() or "intraday" in iframe_src.lower()):
+                        driver.get(iframe_src)
+                        time.sleep(3)
+                        iframe_source = driver.page_source
+                        matches = re.findall(r'https?://[^\s"\']*?\.csv', iframe_source, re.IGNORECASE)
+                        if matches:
+                            csv_url = matches[0]
+                            break
 
-            time.sleep(3)
-            # 새 탭이 열렸을 경우 해당 탭으로 전환
-            if len(driver.window_handles) > 1:
-                driver.switch_to.window(driver.window_handles[-1])
+            if csv_url:
+                print(f"[정보] Intraday CSV URL 발견: {csv_url}")
+                response = requests.get(csv_url, headers={"User-Agent": "Mozilla/5.0"})
+                if response.status_code == 200:
+                    target_path = os.path.join(DOWNLOAD_DIR, "Yieldmax_Intraday_intraday.csv")
+                    with open(target_path, "wb") as f:
+                        f.write(response.content)
+                    process_downloaded_file("Intraday")
+                else:
+                    print(f"[오류] Intraday CSV 직접 다운로드 실패 (상태 코드: {response.status_code})")
+            else:
+                print("[알림] Intraday CSV 링크를 소스에서 직접 찾지 못했습니다.")
 
-            process_downloaded_file("Intraday")
         except Exception as e:
-            print(f"[알림] Intraday Trades 파일 미존재 또는 다운로드 불가: {e}")
+            print(f"[알림] Intraday 처리 중 예외 발생: {e}")
 
     finally:
         driver.quit()
