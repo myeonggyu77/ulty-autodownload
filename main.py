@@ -69,52 +69,54 @@ def run_download():
             driver.get(holdings_btn.get_attribute("href"))
             process_downloaded_file("Holdings")
         except Exception as e:
-            print(f"[알림] Holdings 다운로드 실패: {e}")
+            print(f"[알림] Holdings 다운로드 중 예외 발생: {e}")
 
         time.sleep(3)
 
-        # 2) Intraday Trades 다운로드 (전체 소스 및 iframe 탐색 방식)
+        # 2) Intraday Trades 다운로드 (Google Sheets Export 변환 방식)
         try:
             driver.get(url)
             time.sleep(5)
 
-            csv_url = None
-            page_source = driver.page_source
+            # Intraday 버튼 요소 탐색
+            intraday_xpath = "//a[contains(@href, 'trade') or contains(@href, 'Trade') or contains(@href, 'intraday') or contains(@href, 'spreadsheets')]"
+            intraday_elements = driver.find_elements(By.XPATH, intraday_xpath)
 
-            # 소스 코드 전체에서 intraday/trade 관련 csv 링크 정규식 탐색
-            csv_matches = re.findall(r'https?://[^\s"\']*?(?:trade|intraday)[^\s"\']*?\.csv', page_source, re.IGNORECASE)
-            
-            if csv_matches:
-                csv_url = csv_matches[0]
-            else:
-                # iframe 내부도 체크
-                iframes = driver.find_elements(By.TAG_NAME, "iframe")
-                for iframe in iframes:
-                    iframe_src = iframe.get_attribute("src")
-                    if iframe_src and ("trade" in iframe_src.lower() or "intraday" in iframe_src.lower()):
-                        driver.get(iframe_src)
-                        time.sleep(3)
-                        iframe_source = driver.page_source
-                        matches = re.findall(r'https?://[^\s"\']*?\.csv', iframe_source, re.IGNORECASE)
-                        if matches:
-                            csv_url = matches[0]
-                            break
+            sheets_url = None
+            for elem in intraday_elements:
+                href = elem.get_attribute("href")
+                if href and ("spreadsheets" in href or "trade" in href.lower() or "intraday" in href.lower()):
+                    sheets_url = href
+                    break
 
-            if csv_url:
-                print(f"[정보] Intraday CSV URL 발견: {csv_url}")
-                response = requests.get(csv_url, headers={"User-Agent": "Mozilla/5.0"})
-                if response.status_code == 200:
-                    target_path = os.path.join(DOWNLOAD_DIR, "Yieldmax_Intraday_intraday.csv")
-                    with open(target_path, "wb") as f:
-                        f.write(response.content)
+            # 페이지 소스 내 구글 스프레드시트 ID 패턴 추적
+            if not sheets_url:
+                matches = re.findall(r'https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)', driver.page_source)
+                if matches:
+                    sheets_url = f"https://docs.google.com/spreadsheets/d/{matches[0]}/export?format=csv"
+
+            if sheets_url:
+                # 구글 시트 URL을 CSV 내보내기(Export) 주소로 직접 변환
+                if "docs.google.com/spreadsheets" in sheets_url:
+                    sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', sheets_url)
+                    if sheet_id_match:
+                        sheet_id = sheet_id_match.group(1)
+                        sheets_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+
+                print(f"[정보] 추출된 Intraday CSV 주소: {sheets_url}")
+                res = requests.get(sheets_url, headers={"User-Agent": "Mozilla/5.0"})
+                if res.status_code == 200:
+                    file_path = os.path.join(DOWNLOAD_DIR, "Yieldmax_Intraday_intraday.csv")
+                    with open(file_path, "wb") as f:
+                        f.write(res.content)
                     process_downloaded_file("Intraday")
                 else:
-                    print(f"[오류] Intraday CSV 직접 다운로드 실패 (상태 코드: {response.status_code})")
+                    print(f"[오류] Intraday 다운로드 응답 코드 실패: {res.status_code}")
             else:
-                print("[알림] Intraday CSV 링크를 소스에서 직접 찾지 못했습니다.")
+                print("[알림] Intraday 시트 주소를 찾지 못했습니다.")
 
         except Exception as e:
-            print(f"[알림] Intraday 처리 중 예외 발생: {e}")
+            print(f"[알림] Intraday 다운로드 예외: {e}")
 
     finally:
         driver.quit()
